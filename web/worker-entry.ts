@@ -1,10 +1,11 @@
-import { schemeParse, pieDeclarationParser, Claim, Definition, SamenessCheck, DefineTactically } from '../src/pie-interpreter/parser/parser';
-import { initCtx, addClaimToContext, addDefineToContext, addDefineTacticallyToContext, Context, Define } from '../src/pie-interpreter/utils/context';
-import { checkSame, represent } from '../src/pie-interpreter/typechecker/represent';
-import { go, stop, Message } from '../src/pie-interpreter/types/utils';
-import { readBack } from '../src/pie-interpreter/evaluator/utils';
-import { prettyPrintCore } from '../src/pie-interpreter/unparser/pretty';
-import { TypeDefinition, handleTypeDefinition } from '../src/pie-interpreter/typechecker/type-definition';
+import { schemeParse, pieDeclarationParser, Claim, Definition, SamenessCheck, DefineTactically } from '../src/pie_interpreter/parser/parser';
+import { initCtx, addClaimToContext, addDefineToContext, addDefineTacticallyToContext, Context, Define } from '../src/pie_interpreter/utils/context';
+import { checkSame, represent } from '../src/pie_interpreter/typechecker/represent';
+import { go, stop, Message } from '../src/pie_interpreter/types/utils';
+import { readBack } from '../src/pie_interpreter/evaluator/utils';
+import { prettyPrintCore } from '../src/pie_interpreter/unparser/pretty';
+import { DefineDatatypeSource, handleDefineDatatype } from '../src/pie_interpreter/typechecker/definedatatype';
+import { ProofTreeData } from '../src/pie_interpreter/tactics/proofstate';
 
 export interface Diagnostic {
   message: string;
@@ -15,11 +16,13 @@ export interface Diagnostic {
   severity: 'error' | 'warning';
 }
 
+
 export interface AnalysisResult {
   diagnostics: Diagnostic[];
   summary: string;
   pretty?: string;
   messages?: string;
+  proofTrees: { name: string; tree: ProofTreeData }[];
 }
 
 export function analyzePieSource(source: string): AnalysisResult {
@@ -27,13 +30,15 @@ export function analyzePieSource(source: string): AnalysisResult {
   if (!trimmed) {
     return {
       diagnostics: [],
-      summary: 'Waiting for input…'
+      summary: 'Waiting for input…',
+      proofTrees: []
     };
   }
 
   const diagnostics: Diagnostic[] = [];
   const ctx = cloneContext(initCtx);
   let messages = '';
+  const proofTrees: { name: string; tree: ProofTreeData }[] = [];
 
   try {
     const astList = schemeParse(source);
@@ -41,6 +46,22 @@ export function analyzePieSource(source: string): AnalysisResult {
     for (const ast of astList) {
       const declaration = pieDeclarationParser.parseDeclaration(ast);
       const result = processDeclaration(ctx, declaration);
+      // Capture message and proofTree even when there's a diagnostic
+      // (e.g., incomplete proofs still have useful visualization data)
+      if (result.message) {
+        messages += result.message;
+      }
+      if (result.proofTree) {
+        // Find the name of the proof if available
+        let name = 'Unknown Proof';
+        if (declaration instanceof DefineTactically) {
+            name = declaration.name;
+        } else if ('name' in declaration) {
+            // @ts-ignore
+            name = declaration.name;
+        }
+        proofTrees.push({ name, tree: result.proofTree });
+      }
       if (result.diagnostic) {
         diagnostics.push(result.diagnostic);
         break;
@@ -68,13 +89,16 @@ export function analyzePieSource(source: string): AnalysisResult {
     diagnostics,
     summary,
     pretty,
-    messages: messages || undefined
+    messages: messages || undefined,
+    proofTrees
   };
 }
+
 
 interface DeclarationResult {
   diagnostic: Diagnostic | null;
   message?: string;
+  proofTree?: ProofTreeData;
 }
 
 function processDeclaration(ctx: Context, declaration: ReturnType<typeof pieDeclarationParser.parseDeclaration>): DeclarationResult {
@@ -103,11 +127,27 @@ function processDeclaration(ctx: Context, declaration: ReturnType<typeof pieDecl
       const result = addDefineTacticallyToContext(ctx, declaration.name, declaration.location, declaration.tactics);
       if (result instanceof go) {
         assignContext(ctx, result.result.context);
-        return { diagnostic: null, message: result.result.message };
+        // Check if proof was incomplete
+        if (result.result.isIncomplete) {
+          const loc = declaration.location.locationToSrcLoc();
+          return {
+            diagnostic: {
+              message: 'Proof incomplete. Not all goals have been solved.',
+              startLineNumber: loc.startLine,
+              startColumn: Math.max(1, loc.startColumn),
+              endLineNumber: loc.endLine ?? loc.startLine,
+              endColumn: Math.max(loc.endColumn ?? loc.startColumn + 1, loc.startColumn + 1),
+              severity: 'error' as const
+            },
+            message: result.result.message,
+            proofTree: result.result.proofTree
+          };
+        }
+        return { diagnostic: null, message: result.result.message, proofTree: result.result.proofTree };
       }
       return { diagnostic: diagnosticFromStop(result as stop) };
-    } else if (declaration instanceof TypeDefinition) {
-      const result = handleTypeDefinition(ctx, new Map(), declaration);
+    } else if (declaration instanceof DefineDatatypeSource) {
+      const result = handleDefineDatatype(ctx, new Map(), declaration);
       if (result instanceof go) {
         assignContext(ctx, result.result);
         return { diagnostic: null };

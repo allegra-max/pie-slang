@@ -1,0 +1,67 @@
+#lang pie
+
+;;; =========================================
+;;; Vec: Vectors (Lists with length)
+;;; based on Chapter 6
+;;; =========================================
+
+;;; Head/First 
+(claim first
+  (Pi ((E U) (l Nat))
+    (-> (Vec E (add1 l))
+        E)))
+
+(define first
+  (lambda (E l es)
+    (head es)))
+
+;;; Tail/Rest 
+(claim rest
+  (Pi ((E U) (l Nat))
+    (-> (Vec E (add1 l))
+        (Vec E l))))
+
+(define rest
+  (lambda (E l es)
+    (tail es)))
+
+;;; Last 
+(claim last
+  (Pi ((E U) (l Nat))
+    (-> (Vec E (add1 l))
+        E)))
+
+(claim base-last
+  (Pi ((E U))
+    (-> (Vec E (add1 zero))
+        E)))
+
+(define base-last
+  (lambda (E es)
+    (head es)))
+
+(claim mot-last
+  (-> U Nat U))
+
+(define mot-last
+  (lambda (E k)
+    (-> (Vec E (add1 k))
+        E)))
+
+(claim step-last
+  (Pi ((E U) (l-1 Nat))
+    (-> (mot-last E l-1)
+        (mot-last E (add1 l-1)))))
+
+(define step-last
+  (lambda (E l-1)
+    (lambda (lastl-1)
+      (lambda (es)
+        (lastl-1 (tail es))))))
+
+(define last
+  (lambda (E l)
+    (ind-Nat l
+      (mot-last E)
+      (base-last E)
+      (step-last E))))

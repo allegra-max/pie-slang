@@ -1,0 +1,77 @@
+#lang pie
+
+;;; =========================================
+;;; List: Sequence Operations
+;;; based on Chapter 5
+;;; =========================================
+
+;;; Length 
+(claim length
+  (Pi ((E U))
+    (-> (List E) Nat)))
+
+(claim step-length
+  (Pi ((E U))
+    (-> E (List E) Nat Nat)))
+
+(define step-length
+  (lambda (E)
+    (lambda (e es lengthes)
+      (add1 lengthes))))
+
+(define length
+  (lambda (E es)
+    (rec-List es
+      zero
+      (step-length E))))
+
+;;; Append 
+(claim append
+  (Pi ((E U))
+    (-> (List E) (List E) (List E))))
+
+(claim step-append
+  (Pi ((E U))
+    (-> E (List E) (List E) (List E))))
+
+(define step-append
+  (lambda (E)
+    (lambda (e es appendes)
+      (:: e appendes))))
+
+(define append
+  (lambda (E start end)
+    (rec-List start
+      end
+      (step-append E))))
+
+;;; Snoc (Reverse Cons)
+(claim snoc
+  (Pi ((E U))
+    (-> (List E) E (List E))))
+
+(define snoc
+  (lambda (E start e)
+    (rec-List start
+      (:: e nil)
+      (step-append E))))
+
+;;; Reverse 
+(claim reverse
+  (Pi ((E U))
+    (-> (List E) (List E))))
+
+(claim step-reverse
+  (Pi ((E U))
+    (-> E (List E) (List E) (List E))))
+
+(define step-reverse
+  (lambda (E)
+    (lambda (e es reversees)
+      (snoc E reversees e))))
+
+(define reverse
+  (lambda (E es)
+    (rec-List es
+      (the (List E) nil)
+      (step-reverse E))))

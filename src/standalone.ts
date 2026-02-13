@@ -1,15 +1,15 @@
-import { evaluatePie } from './pie-interpreter/main.js';
+import { evaluatePie } from './pie_interpreter/main.js';
 
 // Standalone entry point for the Pie interpreter
 console.log("Pie Interpreter - Standalone Mode");
 
 // Test with a simple Pie expression
 const testCode = `
-(claim myZero Nat)
-(define myZero zero)
+(claim zero Nat)
+(define zero zero)
 
 (claim one Nat) 
-(define one (add1 myZero))
+(define one (add1 zero))
 
 (claim two Nat)
 (define two (add1 one))

@@ -1,0 +1,13 @@
+(claim + (-> Nat Nat Nat))
+(define +
+  (lambda (n m)
+    (iter-Nat n
+      m
+      (lambda (prev) (add1 prev)))))
+
+(claim * (-> Nat Nat Nat))
+(define *
+  (lambda (n m)
+    (iter-Nat n
+      zero
+      (lambda (prev) (+ m prev)))))

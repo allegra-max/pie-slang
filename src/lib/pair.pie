@@ -1,0 +1,56 @@
+#lang pie
+
+;;; =========================================
+;;; Pair: Sigma Types & Operations
+;;; based on Chapter 4
+;;; =========================================
+
+;;; Pair Eliminator 
+(claim elim-Pair
+  (Pi ((A U) (D U) (X U))
+    (-> (Pair A D)
+        (-> A D X)
+        X)))
+
+(define elim-Pair
+  (lambda (A D X)
+    (lambda (p f)
+      (f (car p) (cdr p)))))
+
+;;; Kar (First / Car)
+(claim kar (-> (Pair Nat Nat) Nat))
+(define kar
+  (lambda (p)
+    (elim-Pair Nat Nat Nat
+      p
+      (lambda (a d) a))))
+
+;;; Kdr (Second / Cdr)
+(claim kdr (-> (Pair Nat Nat) Nat))
+(define kdr
+  (lambda (p)
+    (elim-Pair Nat Nat Nat
+      p
+      (lambda (a d) d))))
+
+;;; Swap 
+(claim swap
+  (-> (Pair Nat Atom)
+      (Pair Atom Nat)))
+
+(define swap
+  (lambda (p)
+    (elim-Pair Nat Atom (Pair Atom Nat)
+      p
+      (lambda (a d)
+        (cons d a)))))
+
+;;; Twin 
+(claim twin
+  (Pi ((Y U))
+    (-> Y (Pair Y Y))))
+
+(define twin
+  (lambda (Y)
+    (lambda (x)
+      (cons x x))))

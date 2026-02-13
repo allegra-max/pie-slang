@@ -1,6 +1,3 @@
-import { PieLanguageClient, registerPieLanguage } from './lsp/lsp-client-bundle.js';
-
-// Extend Window interface to include Monaco globals
 const examples = {
   'Hello World': `(claim zero Nat)
 (define zero zero)
@@ -93,7 +90,7 @@ const examples = {
 
 (claim incremented-vec (Vec Nat 3))
 (define incremented-vec (vec-map Nat Nat 3 add1-fn nat-vec))`,
-  'Tactics: Even or Odd': `
+'Tactics: Even or Odd' : `
 (claim +
   (→ Nat Nat
     Nat))
@@ -137,8 +134,8 @@ const examples = {
 
 (define Odd
   (λ (n)
-    (Σ ((half Nat))
-      (= Nat n (add1 (double half )))))) 
+    (Σ ((haf Nat))
+      (= Nat n (add1 (double haf )))))) 
 
 (claim zero-is-even
   (Even 0))
@@ -208,24 +205,21 @@ const examples = {
 
 ;; This is the proof using our new tactic system
 (define-tactically even-or-odd
-  ((intro n)
-  (elim-Nat n)
-  (then
-    (exact (left zero-is-even)))
-  (then
+  ( (intro n)
+    (elimNat n)
+    (left)
+    (exact zero-is-even)
     (intro n-1)
     (intro e-or-on-1)
-    (elim-Either e-or-on-1)
-    (then
-      (intro xr)
-      (go-Right)
-      (exact (add1-even->odd n-1 xr)))
-    (then
-      (intro xl)
-      (go-Left)
-      (exact (add1-odd->even n-1 xl))))))`,
-
-  'Inductive Type: Less Than': `;; Define Less Than relation using our new inductive type definiton
+    (elimEither e-or-on-1)
+    (intro xr)
+    (right)
+    (exact ((add1-even->odd n-1) xr))
+    (intro x1)
+    (left)
+    ;; finish the proof with "(exact ((add1-odd->even n-1) x1))"
+   ))`,
+   'Inductive Type: Less Than': `;; Define Less Than relation using our new inductive type definiton
     (data Less-Than () ((j Nat) (k Nat))
       (zero-smallest ((n Nat)) (Less-Than () (zero (add1 n))))
       (add1-smaller ((j Nat) (k Nat) (j<k (Less-Than () (j k)))) (Less-Than () ((add1 j) (add1 k))))
@@ -250,7 +244,7 @@ const examples = {
     (claim result Nat)
     (define result (extract-smaller zero (add1 zero) proof-0<1))
     `,
-  'Inductive Type: Subtype': `
+    'Inductive Type: Subtype':`
 (data Subtype () ((T1 U) (T2 U))
   (refl ((T U))
     (Subtype () (T T)))
@@ -337,29 +331,12 @@ const examples = {
 
 const defaultSource = examples['Hello World'];
 
+const status = document.getElementById('status-pill');
 const previewSummary = document.getElementById('preview-summary');
 const previewOutput = document.getElementById('preview-output');
 
 let diagnosticsWorker = null;
-let lspClient = null;
 let monacoApi = null;
-
-// Store the latest context info for display
-let latestContextInfo = {
-  contextLines: [],
-  inTacticalProof: false,
-  proofInfo: null
-};
-
-// Store the latest diagnostics status
-let latestDiagnosticsStatus = { hasErrors: false, message: '' };
-
-function setSummary(message, tone = 'neutral') {
-  if (previewSummary) {
-    previewSummary.textContent = message;
-    previewSummary.dataset.tone = tone;
-  }
-}
 
 function setStatus(message) {
   if (status) {
@@ -367,69 +344,9 @@ function setStatus(message) {
   }
 }
 
-// Convert ANSI color codes to HTML spans with appropriate CSS classes
-function ansiToHtml(text) {
-  // ANSI escape code regex
-  const ansiRegex = /\x1b\[(\d+)m/g;
-
-  // Map ANSI codes to CSS classes
-  const codeToClass = {
-    '0': '',           // Reset
-    '1': 'ansi-bright',
-    '2': 'ansi-dim',
-    '32': 'ansi-green',
-    '33': 'ansi-yellow',
-    '36': 'ansi-cyan',
-  };
-
-  let result = '';
-  let lastIndex = 0;
-  let openSpans = 0;
-  let match;
-
-  while ((match = ansiRegex.exec(text)) !== null) {
-    // Add text before this escape code
-    const textBefore = text.slice(lastIndex, match.index);
-    result += escapeHtml(textBefore);
-
-    const code = match[1];
-    if (code === '0') {
-      // Reset: close all open spans
-      while (openSpans > 0) {
-        result += '</span>';
-        openSpans--;
-      }
-    } else {
-      const className = codeToClass[code];
-      if (className) {
-        result += `<span class="${className}">`;
-        openSpans++;
-      }
-    }
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add remaining text
-  result += escapeHtml(text.slice(lastIndex));
-
-  // Close any remaining open spans
-  while (openSpans > 0) {
-    result += '</span>';
-    openSpans--;
-  }
-
-  return result;
-}
-
-// Escape HTML special characters
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+function setSummary(message, tone = 'neutral') {
+  previewSummary.textContent = message;
+  previewSummary.dataset.tone = tone;
 }
 
 function renderPreviewText(text, tone) {
@@ -442,73 +359,15 @@ function renderPreviewText(text, tone) {
   if (text === undefined) {
     previewOutput.textContent = 'Program is empty.';
   } else {
-    // Check if text contains ANSI codes
-    if (text.includes('\x1b[')) {
-      previewOutput.innerHTML = ansiToHtml(text);
-    } else {
-      previewOutput.textContent = text;
-    }
+    previewOutput.textContent = text;
   }
 }
-
-// Render combined context info and diagnostics
-function renderContextInfo() {
-  if (!latestContextInfo) {
-    return;
-  }
-
-  const lines = [];
-
-  if (latestContextInfo.inTacticalProof && latestContextInfo.proofInfo) {
-    // Inside a tactical proof - show proof state prominently
-    lines.push('═══════════════════════════════════');
-    lines.push('');
-    lines.push(latestContextInfo.proofInfo);
-    lines.push('');
-    lines.push('═══════════════════════════════════');
-
-    if (latestContextInfo.contextLines.length > 0) {
-      lines.push('Global Context:');
-      lines.push('───────────────────────────────────');
-      for (const line of latestContextInfo.contextLines) {
-        lines.push(`  ${line}`);
-      }
-    }
-  } else {
-    // Normal context display
-    if (latestContextInfo.contextLines.length > 0) {
-      lines.push('Context:');
-      lines.push('───────────────────────────────────');
-      for (const line of latestContextInfo.contextLines) {
-        lines.push(`  ${line}`);
-      }
-    } else {
-      lines.push('(No definitions before cursor)');
-    }
-  }
-
-  // Show the combined output
-  const tone = latestDiagnosticsStatus.hasErrors ? 'error' : 'success';
-  renderPreviewText(lines.join('\n'), tone);
-}
-
-// Callback for context info updates
-const handleContextInfoUpdate = (
-  contextLines,
-  inTacticalProof,
-  proofInfo
-) => {
-  latestContextInfo = { contextLines, inTacticalProof, proofInfo };
-  renderContextInfo();
-};
 
 function applyDiagnostics(monaco, editor, payload) {
   const { diagnostics, pretty } = payload;
   const model = editor.getModel();
 
-  if (!model) return;
-
-  const markers = diagnostics.map((d) => ({
+  const markers = diagnostics.map(d => ({
     startLineNumber: d.startLineNumber,
     startColumn: d.startColumn,
     endLineNumber: d.endLineNumber,
@@ -523,19 +382,21 @@ function applyDiagnostics(monaco, editor, payload) {
 
   if (diagnostics.length === 0) {
     setSummary('SUCCESS', 'success');
-    latestDiagnosticsStatus = { hasErrors: false, message: pretty?.trim() ?? '' };
-    // Trigger context info display with success status
-    renderContextInfo();
+    setStatus('All clear');
+    renderPreviewText(pretty?.trim() ?? undefined, 'success');
     return;
   }
 
   const primary = diagnostics[0];
   const tone = primary.severity === 'warning' ? 'warning' : 'error';
   const label = tone === 'warning' ? 'WARNING' : 'ERROR';
+  const statusLabel = diagnostics.length > 1
+    ? `${diagnostics.length} issues`
+    : tone === 'warning' ? 'Warning found' : 'Issue found';
 
   setSummary(label, tone);
+  setStatus(statusLabel);
   const location = `Line ${primary.startLineNumber}, Col ${primary.startColumn}`;
-  latestDiagnosticsStatus = { hasErrors: true, message: `${location}\n${primary.message}` };
   renderPreviewText(`${location}\n${primary.message}`, tone);
 }
 
@@ -562,6 +423,7 @@ function initializeDiagnostics(editor) {
       colno: error.colno
     });
     setSummary('Diagnostics worker crashed.', 'error');
+    setStatus('Diagnostics error');
     renderPreviewText(
       `Worker failed to load. Check browser console for details.\nError: ${error.message || 'Unknown error'}`,
       'error'
@@ -571,31 +433,12 @@ function initializeDiagnostics(editor) {
   return worker;
 }
 
-async function initializeLSP(monacoLib, editor) {
-  try {
-    if (lspClient && lspClient.isRunning()) {
-      await lspClient.stop();
-    }
-
-    lspClient = new PieLanguageClient(monacoLib, editor);
-
-    // Set up the context info callback
-    lspClient.setContextInfoCallback(handleContextInfoUpdate);
-
-    await lspClient.start();
-    console.log('LSP client initialized successfully');
-
-    // Request initial context info
-    lspClient.requestContextInfo();
-  } catch (error) {
-    console.error('Failed to initialize LSP client:', error);
-    setSummary('LSP features unavailable', 'warning');
+function initializeEditor(monaco, registerLanguage) {
+  if (typeof registerLanguage === 'function') {
+    registerLanguage(monaco);
+  } else if (monaco?.languages && !monaco.languages.getLanguages().some(lang => lang.id === 'pie')) {
+    monaco.languages.register({ id: 'pie' });
   }
-}
-
-function initializeEditor(monaco) {
-  // Register Pie language
-  registerPieLanguage(monaco);
 
   const editor = monaco.editor.create(document.getElementById('editor'), {
     value: defaultSource,
@@ -612,7 +455,6 @@ function initializeEditor(monaco) {
       verticalScrollbarSize: 6,
       verticalSliderSize: 4
     },
-    tabSize: 2,
     padding: { top: 16 },
     fontSize: 14,
     fontFamily: "Menlo, 'Fira Code', 'JetBrains Mono', monospace",
@@ -621,6 +463,7 @@ function initializeEditor(monaco) {
 
   renderPreviewText(defaultSource.trim());
   setSummary('Ready for analysis.', 'neutral');
+  setStatus('Editor loaded');
 
   const debounced = debounce((text) => {
     if (text.trim().length === 0) {
@@ -630,6 +473,7 @@ function initializeEditor(monaco) {
       setSummary('Running checks…', 'warning');
       renderPreviewText('Analyzing…');
     }
+    setStatus('Typing…');
   }, 120);
 
   const queueDiagnostics = debounce((text) => {
@@ -649,21 +493,14 @@ function initializeEditor(monaco) {
   });
 
   editor.onDidBlurEditorWidget(() => {
-    setStatus("Idle");
+    setStatus('Idle');
   });
-
-  editor.addCommand(
-    monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
-    () => editor.getAction("editor.action.formatDocument").run(),
-  );
 
   return editor;
 }
 
 function initializeExamplePicker(editor) {
   const picker = document.getElementById('example-picker');
-
-  if (!picker) return;
 
   // Populate the dropdown
   Object.keys(examples).forEach(name => {
@@ -685,28 +522,85 @@ function initializeExamplePicker(editor) {
   });
 }
 
+function initializeCopyButton(editor) {
+  // Use event delegation on document to handle click even if button is replaced
+  // Only attach once by checking a flag
+  if (window.__copyBtnInitialized) return;
+  window.__copyBtnInitialized = true;
+
+  document.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('#copy-btn');
+    if (!copyBtn) return;
+
+    const code = editor.getValue();
+    try {
+      await navigator.clipboard.writeText(code);
+      copyBtn.textContent = 'Copied!';
+      copyBtn.dataset.copied = 'true';
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+        delete copyBtn.dataset.copied;
+      }, 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      copyBtn.textContent = 'Failed';
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+      }, 1500);
+    }
+  });
+}
+
+async function initializeLSP(PieLanguageClientCtor, monacoInstance, editor) {
+  if (!PieLanguageClientCtor) {
+    return null;
+  }
+
+  try {
+    const lspClient = new PieLanguageClientCtor(monacoInstance, editor);
+    await lspClient.start();
+    console.log('LSP client initialized successfully');
+    return lspClient;
+  } catch (error) {
+    console.error('Failed to initialize LSP client:', error);
+    console.log('LSP features will not be available. Falling back to basic diagnostics.');
+    return null;
+  }
+}
+
 async function boot() {
   if (!window.require) {
-    console.error('Monaco loader not available');
+    setStatus('Failed to load editor runtime');
     return;
   }
 
   window.require.config({
     paths: {
-      vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs'
+      vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs'
     }
   });
 
   window.require(['vs/editor/editor.main'], async () => {
     monacoApi = window.monaco;
-    const editor = initializeEditor(monacoApi);
+
+    let PieLanguageClientCtor = null;
+    let registerPieLanguage = null;
+
+    try {
+      const lspModule = await import('./lsp/lsp-client-bundle.js');
+      PieLanguageClientCtor = lspModule.PieLanguageClient;
+      registerPieLanguage = lspModule.registerPieLanguage;
+    } catch (error) {
+      console.error('Failed to load LSP bundle:', error);
+      console.log('Continuing without enhanced LSP features.');
+    }
+
+    const editor = initializeEditor(monacoApi, registerPieLanguage);
     diagnosticsWorker = initializeDiagnostics(editor);
     initializeExamplePicker(editor);
+    initializeCopyButton(editor);
 
-    // Initialize LSP
-    if (monacoApi) {
-      await initializeLSP(monacoApi, editor);
-    }
+    const lspClient = await initializeLSP(PieLanguageClientCtor, monacoApi, editor);
 
     if (diagnosticsWorker) {
       diagnosticsWorker.postMessage({
@@ -714,8 +608,8 @@ async function boot() {
         payload: { source: editor.getValue() }
       });
     }
-
     window.__pieEditor = editor;
+    window.__pieLSPClient = lspClient;
   });
 }
 
@@ -728,38 +622,3 @@ function debounce(fn, delay) {
 }
 
 boot();
-
-document.addEventListener("DOMContentLoaded", function () {
-  const downloadBtn = document.getElementById("download-btn");
-  const formatBtn = document.getElementById("format-btn");
-
-  downloadBtn.addEventListener("click", function () {
-    const editor = window.__pieEditor;
-    if (!editor) {
-      // todo: when refactored with react; use proper modal
-      // ugly alert for now...
-      return alert("Editor not initialised yet.");
-    }
-
-    const sourceCode = editor.getValue();
-    const blob = new Blob([sourceCode], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "program.pie";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
-
-  formatBtn.addEventListener("click", function () {
-    const editor = window.__pieEditor;
-    if (!editor) {
-      return alert("Editor not initialised yet.");
-    }
-
-    editor.getAction("editor.action.formatDocument").run();
-  });
-});
